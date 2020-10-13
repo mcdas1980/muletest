@@ -1,0 +1,454 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:vm="http://www.mulesoft.org/schema/mule/vm" xmlns:batch="http://www.mulesoft.org/schema/mule/batch"
+	xmlns:collibra-dgc="http://www.mulesoft.org/schema/mule/collibra-dgc"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/collibra-dgc http://www.mulesoft.org/schema/mule/collibra-dgc/current/mule-collibra-dgc.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd">
+	<vm:config name="VM_Config" doc:name="VM Config" doc:id="522a0c9e-117e-4bbd-876b-e2e8133ab9a9" >
+		<vm:connection />
+		<vm:queues >
+			<vm:queue queueName="ERROR_RECORDS" queueType="PERSISTENT" />
+		</vm:queues>
+	</vm:config>
+	<file:config name="File_Config" doc:name="File Config" doc:id="a014eb3f-fa6f-4984-9d36-3b7d0284609a" >
+		<file:connection workingDir="D:\SourceFeeds" />
+	</file:config>
+	<sub-flow name="Actual_Flow" doc:id="49ce8583-955b-40ca-bbd5-bff5fa02ea8f" >
+		<logger level="INFO" doc:name="Logger" doc:id="b6c89fa0-2492-4c41-9b83-83a7ea791823" message="=====ASPEN===== Columns metadata from DataSteward import template captured" />
+		<ee:transform doc:name="Join the Metadata sources" doc:id="c1957f9a-ce81-41a3-9e9a-71d74c8f82f2">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+
+fun get_datasets_data(inputSchema) = {
+	(vars.datasetsList[?(lower($.name)==lower(inputSchema))]	)
+}
+
+output application/json
+---
+vars.redshift_data map (item, index ) -> {
+	datasetName: item.table_schema,
+	tableName: item.table_schema ++">" ++ item.table_name,
+	columnName: item.column_name,
+	columnIsnullable: item.is_nullable,
+	columnPosition: item.ordinal_position,
+	dataType: item.data_type,
+	colLength: item.character_maximum_length default '',
+	orgUnit: get_datasets_data(item.table_schema)."name" default ' '
+	//colDescription: get_vendor_data(item.table_name,item.column_name)."Description" default ' ',
+	//colLogicalName: get_vendor_data(item.table_name,item.column_name)."Logical Name" default ' ',
+	//colSource: get_vendor_data(item.table_name,item.column_name)."Source" default ' '
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="145e8542-ab07-4a78-8b70-e824b15cfea4" message="=====ASPEN===== Joining Columns metadata sources completed" />
+		<ee:transform doc:name="Filter Domain specific columns" doc:id="129f08f0-a8ce-4087-bfb9-b76957efa901">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload[?($.orgUnit !=' ')]]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="45b74ff8-be8f-4798-859e-d8a1e90f6d4c" message="=====ASPEN===== Filtered the domain specific metadata for final payload creation" />
+		<ee:transform doc:name="Final Payload" doc:id="63bdb995-655c-4242-936a-d525d0f06be1">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+import * from dw::core::Arrays
+output application/json
+---
+payload map (item,index) -> {
+	"name": item.tableName ++ ">" ++ item.columnName,
+	displayName: item.columnName,
+	"Full Name": item.tableName ++ ">" ++ item.columnName,
+	domain: {
+		name: vars.domainName,
+		domainType: {
+			name: vars.domainType
+		},
+		community: {
+			name: vars.communityName
+		}
+	}, // domain end 
+	
+	"62b19f90-2062-4f0b-a56c-ac82eb574cb5": ([{
+		value: item.columnName
+	}] default ""),
+	"e7ed7ad3-fd4b-45e7-8177-8d80882202c3": ([{
+		value: item.dataType
+	}] default ""),	
+	"abfeae0e-fbdc-401c-83ca-605ce8e90605": ([{
+		value: item.colLength
+	}] default ""),
+	"cec9fcfd-40b3-4fb2-ad6d-da0fcb1d9930": ([{
+		value: item.columnPosition
+	}] default ""),
+	"f23e6501-fa00-463e-8c82-1d4ebd4f1b36": ([{
+		value: item.columnIsnullable
+	}] default "True"),
+	"00000000-0000-0000-0000-000000007042:TARGET": [{
+		name: item.tableName default 'Default',
+		domain: {
+			name: vars.domainName,
+			community: {
+				name: vars.communityName
+			}
+		} // domain end 
+	}],
+	"32faf80b-98e6-4093-8d45-19ded0b62fa5:TARGET": [{
+		name: item.datasetName default 'Default',
+		domain: {
+			name: vars.domainName,
+			community: {
+				name: vars.communityName
+			}
+		} // domain end 
+	}]
+} //map end 
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<collibra-dgc:upsert-assets-by-name assetTypeId="00000000-0000-0000-0000-000000031008" doc:name="Upsert assets by name" doc:id="b659deb0-e737-4927-bac8-fc769bfbc0df" config-ref="CollibraDGC_Config_Final" assets="#[payload]" />
+		<ee:transform doc:name="Transform Message" doc:id="8f07ff52-a4be-4a45-831b-d097f0a99450">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload.name]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="b26d7318-42c0-4add-9a3b-d31319caa690" message="=====ASPEN===== Incremental Load Completed" />
+	</sub-flow>
+	<sub-flow name="Initial_load_source_metadata" doc:id="d94b801b-b404-4e63-9783-acef0a2d4260" >
+		<logger level="INFO" doc:name="Logger" doc:id="2c184bef-e27e-432e-8235-3b98a18fef94" message="=====ASPEN=====Capture the Query Parameters (communityName,domainName,orgUnit,domainType)" />
+		<flow-ref doc:name="Flow Reference" doc:id="37293189-966c-435b-bb81-05a2166cd9eb" name="Aspen_assets" />
+		<logger level="INFO" doc:name="Logger" doc:id="5a4fb379-a8dc-4db1-a7ad-891145a471c2" message="=====ASPEN===== Aspen Tables and Datasets list Captured " />
+		<db:select doc:id="7642649e-195e-453c-bf3f-bd1c3e1242f1" doc:name="Select : AWS Redhsift Database " config-ref="AWS_Redshift_Database_Analytics" target="redshift_data" targetValue="#[output application/json --- payload]">
+			<db:sql>${aws_redshift.column_select_query}</db:sql>
+		</db:select>
+		<logger level="INFO" doc:name="Logger" doc:id="bfb50a8f-e8ae-47dd-967f-e09db0dcba0b" message="=====ASPEN===== Columns metadata from AWS Redshift database captured" />
+		<file:read doc:name="Read : Vendor Columns &amp; Tables Import Template" doc:id="516c7750-4d2c-46e1-928b-6c07b27ccba3" path="${vendor_template.path}" outputMimeType="application/xlsx" target="vendor_data" targetValue="#[output application/json --- payload]" config-ref="File_Config" />
+		<file:read doc:name="Read : Datasteward import Template" doc:id="795c0495-7754-4bbf-91e6-7d879b3cbc93" path="${datasteward_template.path}" outputMimeType="application/xlsx" target="datasteward_data" targetValue="#[output application/json --- payload]" config-ref="File_Config" />
+	</sub-flow>
+	<sub-flow name="Aspen_initial_load" doc:id="2a83debd-c776-47db-8ce8-2aea41146d21" >
+		<flow-ref doc:name="Flow Reference" doc:id="39b3e946-5ebc-4926-90b7-8bfce224d37d" name="Initial_load_source_metadata" />
+		<logger level="INFO" doc:name="Logger" doc:id="e5d9e91d-f995-46fa-86f7-0557e5618883" message="=====ASPEN===== Columns metadata from Vendor Columns &amp; Tables import template captured" />
+		<ee:transform doc:name="Join the Metadata sources" doc:id="bda7375f-82de-43d2-92e6-e4d6094abdf5">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+fun get_datasteward_data(inputSchema) = {
+	(vars.datasteward_data."Import Template"[?(lower($.Name)==inputSchema)]	)
+}
+fun get_vendor_data(inputTable,inputCol) = {
+	(vars.vendor_data."Sheet1"[?(lower($."Physical Name") == inputCol and lower($.Table) == inputTable)])
+}
+fun get_dataset_data(inputSchema) = {
+	(vars.datasetsList[?($.name == inputSchema)])
+}
+output application/json
+---
+vars.redshift_data map (item, index ) -> {
+	datasetName: item.table_schema,
+	tableName: item.table_schema ++">" ++ item.table_name,
+	columnName: item.column_name,
+	columnIsnullable: item.is_nullable,
+	columnPosition: item.ordinal_position,
+	dataType: item.data_type,
+	colLength: item.character_maximum_length default '',
+	orgUnit: get_datasteward_data(item.table_schema)."Owned by (Organizational Unit)" default ' ',
+	colDescription: get_vendor_data(item.table_name,item.column_name)."Description" default ' ',
+	colLogicalName: get_vendor_data(item.table_name,item.column_name)."Logical Name" default ' ',
+	colSource: get_vendor_data(item.table_name,item.column_name)."Source" default ' '
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="f9b7b40e-4882-4c51-b24d-754e2227b79f" message="=====ASPEN===== Joining Columns metadata sources completed" />
+		<ee:transform doc:name="Filter Domain specific columns" doc:id="408da34f-22da-4ebd-8008-da26d64dca62">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload[?($.orgUnit ==vars.orgUnit)]]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="cba53e7c-3c36-4e62-9430-b201db8c2c64" message="=====ASPEN===== Filtered the domain specific metadata for final payload creation" />
+		<ee:transform doc:name="Final Payload" doc:id="66b324b3-32a2-44b6-853b-68c279a02cfc">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+import * from dw::core::Arrays
+output application/json
+---
+payload map (item,index) -> {
+	"name": item.tableName ++ ">" ++ item.columnName,
+	displayName: item.columnName,
+	"Full Name": item.tableName ++ ">" ++ item.columnName,
+	domain: {
+		name: vars.domainName,
+		domainType: {
+			name: vars.domainType
+		},
+		community: {
+			name: vars.communityName
+		}
+	}, // domain end 
+	"00000000-0000-0000-0000-000000003114": ([{
+		value: item.colDescription
+	}] default ""),
+	"62b19f90-2062-4f0b-a56c-ac82eb574cb5": ([{
+		value: item.columnName
+	}] default ""),
+	"4fba2039-d7e1-441c-81f8-ace885f5dfe9": ([{
+		value: item.colLogicalName
+	}] default ""),
+	"e7ed7ad3-fd4b-45e7-8177-8d80882202c3": ([{
+		value: item.dataType
+	}] default ""),
+	"b7558c32-30ba-4c3e-80c6-d66a57255077": ([{
+		value: item.colSource
+	}] default " "),
+	"abfeae0e-fbdc-401c-83ca-605ce8e90605": ([{
+		value: item.colLength
+	}] default ""),
+	"cec9fcfd-40b3-4fb2-ad6d-da0fcb1d9930": ([{
+		value: item.columnPosition
+	}] default ""),
+	"ce8d8484-a5df-4104-bc85-1439e8860a72": ([{
+		value: item.columnIsnullable
+	}] default "True"),
+	"00000000-0000-0000-0000-000000007042:TARGET": [{
+		name: item.tableName default 'Default',
+		domain: {
+			name: vars.domainName,
+			community: {
+				name: vars.communityName
+			}
+		} // domain end 
+	}],
+	"32faf80b-98e6-4093-8d45-19ded0b62fa5:TARGET": [{
+		name: item.datasetName default 'Default',
+		domain: {
+			name: vars.domainName,
+			community: {
+				name: vars.communityName
+			}
+		} // domain end 
+	}]
+} //map end 
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="7da503d8-3caa-4258-9474-4dbd6277f3a8" message="final payload created "/>
+		<collibra-dgc:upsert-assets-by-name doc:name="Upsert assets by name" doc:id="29055f01-2a45-4a13-883a-79fe4ea89ec9" config-ref="CollibraDGC_Config_Final" assets="#[payload]" assetTypeId="00000000-0000-0000-0000-000000031008" />
+		<ee:transform doc:name="Transform Message" doc:id="c33b483d-5616-4d0f-a0a6-8f31f1c7cae3" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload.name]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="1d71b287-6af7-41ba-b010-b34c6c18df5b" message="=====ASPEN===== Columns Metadata is ingested into Aspen. " />
+	</sub-flow>
+	<sub-flow name="Aspen_assets" doc:id="d7582ddd-57e6-4360-8736-5aecaf605bbb" >
+		<collibra-dgc:get-community-by-name doc:name="Get community by name" doc:id="16e7f559-ba5d-4b63-8d76-525f5897bcb5" config-ref="CollibraDGC_Config_Final" communityName="#[vars.communityName]" targetValue="#[output application/json --- payload]" target="communityDetails"/>
+		<collibra-dgc:get-domain-by-name doc:name="Get domain by name" doc:id="9d596b7f-525e-4092-be4c-035367eba5e0" config-ref="CollibraDGC_Config_Final" communityId="#[vars.communityDetails.id]" domainName="#[vars.domainName]" targetValue="#[output appliction/json --- payload]" target="domainDetails"/>
+		<collibra-dgc:list-assets doc:name="List assets : Tables" doc:id="b8a669e5-97d4-47b2-aac2-6ccc568a683a" config-ref="CollibraDGC_Config_Final" domainId="#[vars.domainDetails.id]" target="tablesList" targetValue='#[output application/json --- payload[?($."type".name == "Table")]]' limit="100000"/>
+		<collibra-dgc:list-assets doc:name="List assets : Datasets" doc:id="70352cbe-ba33-4625-b7ed-36d16498cffb" config-ref="CollibraDGC_Config_Final" domainId="#[vars.domainDetails.id]" target="datasetsList" targetValue='#[output application/json --- 
+payload[?($."type".name == "Schema")]]' limit="100000"/>
+		<logger level="INFO" doc:name="Logger" doc:id="00eca628-fd0f-4ddf-a341-e884de8c8eb4" message="=====ASPEN===== Apen Assets Captured"/>
+	</sub-flow>
+	<sub-flow name="Aspen_Incremental_load" doc:id="8f0e6363-020c-4222-b44a-3596fce1199c" >
+		<logger level="INFO" doc:name="Logger" doc:id="41c0ed0c-5ed1-449a-a33a-666f965f60dc" message="=====ASPEN=====Capture the Query Parameters (communityName,domainName,orgUnit,domainType)" />
+		<flow-ref doc:name="Flow Reference : Aspen_assets" doc:id="cde85da9-19c9-48f8-8c9d-3c5d298a646d" name="Aspen_assets" />
+		<logger level="INFO" doc:name="Logger" doc:id="f70383aa-d4a6-48af-8c1c-b8f153323507" message="=====ASPEN===== Aspen Tables and Datasets list Captured " />
+		<file:read doc:name="Read : Datasteward import Template" doc:id="59973246-336c-4835-bf6b-4ee9c5fbf004" config-ref="File_Config" path="${datasteward_template.path}" outputMimeType="application/xlsx" target="datasteward_data" targetValue="#[output application/json --- payload]" />
+		<file:read doc:name="Read : Vendor Columns &amp; Tables Import Template" doc:id="2e494012-a6f7-4cf8-9324-ff908f286b46" config-ref="File_Config" path="${vendor_template.path}" outputMimeType="application/xlsx" target="vendor_data" targetValue="#[output application/json --- payload]" />
+		<db:select doc:id="76e71e33-9ae6-4539-b739-d9397a27964c" doc:name="RedshiftDatasets" config-ref="AWS_Redshift_Database_Analytics" targetValue="#[output application/json --- payload]" target="redshiftDatasets">
+			<db:sql><![CDATA[select distinct(table_schema) from svv_tables]]></db:sql>
+			<db:parameter-types />
+		</db:select>
+		<ee:transform doc:name="Transform Message" doc:id="ca27d78e-1fd4-4b60-b4df-38383a939400" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+
+fun get_datasets_data(inputSchema) = {
+	(vars.datasetsList[?(lower($.name)==lower(inputSchema))]	)
+}
+
+output application/json
+---
+vars.redshiftDatasets map (item, index ) -> {
+	datasetName: item.table_schema,
+	orgUnit: get_datasets_data(item.table_schema)."name" default ' '	
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="Filter Domain Specific Columns" doc:id="fdde90f3-bf32-4403-b443-4f6ce33a0526">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload[?($.orgUnit !=' ')]]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<foreach doc:name="For Each" doc:id="b0acea9c-4754-4fca-a4d0-076a76cdca75" >
+			<try doc:name="Try" doc:id="006438c0-41f5-4fec-bfb5-4bc2b5e269fa" >
+				<logger level="INFO" doc:name="Logger" doc:id="dc8a5208-3a68-489b-8b15-0c8692b40626" message='#["***=====ASPEN=====*** Processing Dataset : " ++ payload.datasetName]' />
+				<db:select doc:name="Select" doc:id="72342bfc-b8df-4434-b547-fa6a326ab737" config-ref="AWS_Redshift_Database_Analytics" targetValue="#[output application/json --- payload]">
+				<db:sql>select table_schema,table_name,table_type from svv_tables where table_schema = :datasetName</db:sql>
+				<db:input-parameters><![CDATA[#[{datasetName: payload.datasetName}]]]></db:input-parameters>
+			</db:select>
+				<foreach doc:name="For Each" doc:id="872d1efe-accb-44f9-af1d-d815f3d1bdd5" >
+					<try doc:name="Try" doc:id="e3e3beac-14df-47ca-a309-bde5d01d02db">
+					<logger level="INFO" doc:name="Logger" doc:id="5d018535-bfe5-48a9-83b4-beeb499aad6f" message='#[" =====ASPEN ===== Processing table is : " ++ payload.table_name]' />
+						<db:select doc:name="Select" doc:id="daf4b238-7f7f-4a8e-84f8-cde33f97eb37" config-ref="AWS_Redshift_Database_Analytics" targetValue="#[output application/json --- payload]">
+							<db:sql >select table_schema,table_name,column_name,ordinal_position,is_nullable,data_type,character_maximum_length from svv_columns where table_schema=:table_schema and table_name = :table_name</db:sql>
+							<db:input-parameters ><![CDATA[#[{
+	table_name: payload.table_name,
+	table_schema: payload.table_schema
+}]]]></db:input-parameters>
+						</db:select>
+						<ee:transform doc:name="Transform Message" doc:id="ff73a787-803f-47b3-8e08-595315198175">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+fun get_vendor_data(inputTable,inputCol) = {
+	(vars.vendor_data."Sheet1"[?(lower($."Physical Name") == inputCol and lower($.Table) == inputTable)])
+}
+output application/java
+---
+payload map (item,index) -> {
+	"name": (item.table_schema default "") ++ ">" ++ (item.table_name default "") ++ ">" ++ (item.column_name default ""),
+	"displayName": item.column_name,
+	"Full Name": (item.table_schema default "") ++ ">" ++(item.table_name default "") ++ ">" ++ (item.column_name default ""),
+	domain: {
+		name: vars.domainName,
+		community: {
+			name: vars.communityName
+		}
+	},
+	"00000000-0000-0000-0000-000000003114": [{
+		value: get_vendor_data(item.table_name,item.column_name)."Description" default ' ',
+	}],
+	"62b19f90-2062-4f0b-a56c-ac82eb574cb5": [{
+		value: item.column_name
+	}],
+	"e7ed7ad3-fd4b-45e7-8177-8d80882202c3": [{
+		value: item.data_type
+	}],
+	"cec9fcfd-40b3-4fb2-ad6d-da0fcb1d9930": [{
+		value: item.ordinal_position
+	}],
+	"abfeae0e-fbdc-401c-83ca-605ce8e90605": [{
+		value: item.character_maximum_length
+	}],
+	"ce8d8484-a5df-4104-bc85-1439e8860a72": [{
+		value: item.is_nullable
+	}],
+	"00000000-0000-0000-0000-000000007042:TARGET": [{
+		name: (item.table_schema default '') ++ ">" ++ (item.table_name default '') default 'Default',
+		domain: {
+			name: vars.domainName,
+			community: {
+				name: vars.communityName
+			}
+		} // domain end 
+	}]	
+}]]></ee:set-payload>
+								<ee:set-attributes resource="dev_Incremental_final_transform.dwl" />
+						</ee:message>
+					</ee:transform>
+						<logger level="INFO" doc:name="Logger" doc:id="d0bb9cf8-c56f-4232-8c74-c42158d773c8" />
+						<collibra-dgc:upsert-assets-by-name assetTypeId="00000000-0000-0000-0000-000000031008" doc:name="Upsert assets by name" doc:id="ca8244c9-705e-42fb-935b-4ae88e93dabd" config-ref="CollibraDGC_Config_Final" assets="#[payload]" targetValue="#[output application/json --- payload]"/>
+						<ee:transform doc:name="Transform Message" doc:id="4bc222ba-afcc-4e0d-8091-fb136b7d9ddf" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload
+]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<logger level="INFO" doc:name="Logger" doc:id="746a3d8a-bf09-490c-b057-b6a3c9eb33cf" message='#[" =====ASPEN ===== Table Metadata Ingested "]'/>
+						<error-handler >
+							<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="dfeeb4b1-eacd-4231-8378-c676c96a898b" >
+								<vm:publish queueName="ERROR_RECORDS" doc:name="Publish" doc:id="a0eebe41-4b84-4e06-b8ba-7be2a2d882cf" config-ref="VM_Config"/>
+							</on-error-continue>
+						</error-handler>
+				</try>
+				</foreach>
+				<error-handler >
+					<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="299aefc6-9b20-4f2d-9e76-7a8e67fcc45c" >
+						<vm:publish doc:name="Publish" doc:id="f2c7e497-371d-4dd1-9aab-e52c585d4d88" config-ref="VM_Config" queueName="ERROR_RECORDS"/>
+					</on-error-continue>
+				</error-handler>
+			</try>
+		</foreach>
+	</sub-flow>
+	<flow name="aspen_columnsFlow1" doc:id="406c7943-d042-4581-b273-a43ebb4c6221" >
+		<vm:listener queueName="ERROR_RECORDS" doc:name="Listener" doc:id="8455fcfc-a2db-43f1-87fd-55ecf8877cf5" config-ref="VM_Config"/>
+		<file:write doc:name="Write" doc:id="8d06aa27-7e5e-4d44-bcc1-d01ee3c50e5f" config-ref="File_Config" path="#['aspen_columns_bad_records' ++ ( now() as String {format:'yyyy-MM-dd'}  ) ++ '.txt']" mode="APPEND"/>
+	</flow>
+	<sub-flow name="Flow_Variables" doc:id="61273638-0616-4a6c-a7b1-524e7e1ae7a8" >
+		<set-variable value="#[message.attributes.queryParams.orgUnit]" doc:name="Set Variable : orgUnit" doc:id="e64b47f7-5af9-4acc-bd14-1e881eb8bec0" variableName="orgUnit"/>
+		<choice doc:name="Choice" doc:id="24c51b4b-4d10-42eb-a5e6-7967f14c46a8" >
+			<when expression="#[vars.orgUnit=='AIA']">
+				<set-variable value="${aspen.aia_domain_name}" doc:name="Set Variable: domainName" doc:id="c408fd24-3ebc-4177-90d9-618adf0da84b" variableName="domainName" />
+				<set-variable value="${aspen.aia_community}" doc:name="Set Variable : communityName" doc:id="c2e1b11c-4347-4118-93f5-dede4dcd1a36" variableName="communityName" />
+			</when>
+			<when expression="#[vars.orgUnit =='Commercial-US']">
+				<set-variable value="${aspen.commericla_us_domain_name}" doc:name="Copy_of_Set Variable: domainName" doc:id="97a567f0-b6ca-4c95-97b2-14b64f1afc79" variableName="domainName" />
+				<set-variable value="${aspen.commercial_us_community}" doc:name="Copy_of_Set Variable : communityName" doc:id="abc95b2b-b7e6-4ed0-816e-a379432a2de2" variableName="communityName" />
+			</when>
+			<when expression="#[vars.orgUnit =='M&amp;D']">
+				<set-variable doc:name="Set Variable: domainName" doc:id="765e8b25-5114-4ca0-8e7a-b8eed148e42a" variableName="domainName" value="${aspen.mnd_domain_name}"/>
+				<set-variable value="${aspen.mnd_community}" doc:name="Set Variable : communityName" doc:id="0fd0e95e-4496-4278-bc43-ffae95237547" variableName="communityName" />
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Logger" doc:id="bd9cfc68-8535-4128-965f-f00dae00ef88" message="=====ASPEN===== Please pass the valid orgUnit value : (M&amp;D,AIA,Commercial-US)" />
+			</otherwise>
+		</choice>
+		<set-variable value="Physical Data Dictionary" doc:name="Set Variable : domainType" doc:id="32a2e73e-c4e6-4f3b-a65d-c3de1163db55" variableName="domainType" />
+		<set-variable value="${aspen.load_flag}" doc:name="Set Variable" doc:id="3f2179ef-7127-44cd-826b-975b2c7ec98b" variableName="aspenLoadflag"/>
+	</sub-flow>
+	<flow name="aspen_columnsFlow" doc:id="b6f60284-331b-4d92-8a0b-cfd00237f269" >
+		<http:listener doc:id="cecb00f1-e8c5-4317-8fa0-929b2c059f9c" doc:name="" config-ref="HTTP_Listener_config" path="${http.column_path}"/>
+		<logger level="INFO" doc:name="Logger" doc:id="da98a5ee-6995-46c0-a635-636f2e1f5cc3" message="=====ASPEN===== Process Started "/>
+		<flow-ref doc:name="Flow Reference" doc:id="a4a03da7-a76f-4c5e-9e55-9770c4cabd84" name="Flow_Variables" />
+		<choice doc:name="Choice" doc:id="f14a1cb4-1bb9-4d45-a97c-41e63cf5aeb0" >
+			<when expression='#[vars.aspenLoadflag=="Initial"]'>
+				<flow-ref doc:name="Flow Reference" doc:id="14d050e3-42ff-4b00-bbd3-2c4dd1570fb4" name="Aspen_Incremental_load" />
+			</when>
+			<when expression='#[vars.aspenLoadflag=="Incremental"]'>
+				<flow-ref doc:name="Flow Reference" doc:id="e795aebc-bf67-4412-a645-2daca6bb944f" name="Aspen_Incremental_load"/>
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Logger" doc:id="4f22fd01-bc03-4854-9973-53ee13447f6f" message="Invalid Option "/>
+			</otherwise>
+		</choice>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="6ca9121d-7041-4167-947e-6a81077db11e" >
+				<logger level="INFO" doc:name="Logger" doc:id="327b3825-4c22-4ebb-bbea-7b1abcf7c695" message="=====ASPEN===== Error Occured !!" />
+				<set-variable value="500" doc:name="Set Variable" doc:id="2bfd30fc-754c-4e05-947e-b2ba425d8051" variableName="statusCode" />
+				<ee:transform doc:name="Transform Message" doc:id="0a7abd72-48a2-4c90-9be0-0bf94731e707" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	status : "Error",
+	errorType : error.errorType, 
+	errorIdentifier : error.errorType.identifier,
+	errorDescription : error.description
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<set-payload value='#[payload]' doc:name="Set Payload" doc:id="d03672ea-6f7e-46b1-a3d5-95992981fd28" />
+			</on-error-continue>
+		</error-handler>
+	</flow>
+</mule>

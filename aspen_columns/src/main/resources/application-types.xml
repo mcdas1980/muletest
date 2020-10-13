@@ -1,0 +1,41 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<types:mule xmlns:types="http://www.mulesoft.org/schema/mule/types">
+  <types:catalog>
+    <types:type name="vendor_import_template" format="excel">
+      <types:shape format="weave"><![CDATA[%dw 2.0
+
+type vendor_import_template = {|
+  Sheet1?: Array<{|    "Data Vendor": String,     "Data Set": String,     "Asset Type": String,     "Physical Name": String,     Table: String,     "Logical Name": String,     Description: String,     DataType: String,     Length: String,     Notes: String,     Source: String,     Keys: String  |}>
+|}
+
+]]></types:shape>
+    </types:type>
+    <types:type name="datasteward_import_template" format="excel">
+      <types:shape format="weave"><![CDATA[%dw 2.0
+
+type datasteward_import_template = {|
+  "Import Template"?: Array<{|    "Data Vendor": String,     Name: String,     "Category (Raw, Subject Area, Study Area, Analytical)": String,     "Source Data Set": String,     Description: String,     "Owned by (Organizational Unit)": String,     "Roles > Business Data Process Owner > First Name": String,     "Roles > Business Data Process Owner > Last Name": String,     Classification: String,     "Personally Identifiable Information": String,     "Data Available for Use": String,     "Patient Data": String,     "Restrictions on Use": String,     "Contract Effective Date": String,     "Contract End Date": String,     "Data Region": String,     "Data Capture From Date": String,     "Data Captured Until Date": String,     "Data Type": String,     "Dataset Hosting Location": String,     "Load Type": String,     "Next Release Date": String,     "Associated with (System) [System] > Name": String,     "Therapeutic Markets": String,     "Training Available": String,     "Update Frequency": String,     "Data Vendor": String,     "Data Set Used by Organizational Unit": String  |}>
+|}
+
+]]></types:shape>
+    </types:type>
+  </types:catalog>
+  <types:enrichment select="#516c7750-4d2c-46e1-928b-6c07b27ccba3">
+    <types:processor-declaration>
+      <types:input-event>
+        <types:message>
+          <types:payload type="datasteward_import_template"/>
+        </types:message>
+      </types:input-event>
+    </types:processor-declaration>
+  </types:enrichment>
+  <types:enrichment select="#795c0495-7754-4bbf-91e6-7d879b3cbc93">
+    <types:processor-declaration>
+      <types:input-event>
+        <types:message>
+          <types:payload type="datasteward_import_template"/>
+        </types:message>
+      </types:input-event>
+    </types:processor-declaration>
+  </types:enrichment>
+</types:mule>
